@@ -1,5 +1,6 @@
 import 'google-apps-script';
 
+
 /******************************************************************************/
 // Constants
 /******************************************************************************/
@@ -20,13 +21,19 @@ const ROUND_TAB_EXTRA_INFORMATION_NAMED_RANGE = "my_sheet_finishing_order_extra_
 const ROUND_TAB_FINISHING_ORDER_DRIVERS_NAMED_RANGE = "my_sheet_finishing_order_drivers_range";
 const ROUND_TAB_FINISHING_ORDER_RESERVES_NAMED_RANGE = "my_sheet_finishing_order_reserves_range";
 const ROUND_TAB_STARTING_ORDER_DRIVERS_NAMED_RANGE = "my_sheet_starting_order_drivers_range";
+const ROUND_TAB_STARTING_ORDER_DRIVER_DIVISIONS_NAMED_RANGE = "my_sheet_starting_order_divisions_range"
+const ROUND_TAB_STARTING_ORDER_DRIVERS_POINTS_NAMED_RANGE = "my_sheet_starting_order_drivers_points_range";
 const ROUND_TAB_STARTING_ORDER_RESERVES_NAMED_RANGE = "my_sheet_starting_order_reserves_range";
+const ROUND_TAB_STARTING_ORDER_RESERVE_DIVISIONS_NAMED_RANGE = "my_sheet_starting_order_reserve_divs_range";
 const ROUND_TAB_TIEBREAKER_INDICATOR = "Spin Wheel!";
+const ROUND_TAB_RESERVE_NEEDED_STRING = "RESERVE NEEDED";
 const ROUND_TAB_WAITING_LIST_DRIVERS_NAMED_RANGE = "my_sheet_waiting_list_drivers_range";
 const ROUND_TAB_WAITING_LIST_ACCEPTABLE_DIVISIONS_NAMED_RANGE = "my_sheet_waiting_list_acceptable_divisions_range";
 
 const ROUND_TAB_DROPPING_OUT_EXTRA_INFORMATION = "dropping out";
+ROUND_TAB_SHEET_NAME_PATTERN = /r\d+/;
 const ROUND_TAB_PREFIX = 'r'
+const WAITING_LIST_DIVISION_STRING = "WL";
 
 // points tab named ranges
 const POINTS_SHEET_NAME = "points";
@@ -67,7 +74,7 @@ const STARTING_ORDER_BY_MOVEMENT = [
  * @class Driver
  * @description This class represents a driver
  * @param name {string} The name of the driver
- * @param division {Division} The division the driver is in
+ * @param division {int} The division the driver is in
  * @param finishing_position {int} The finishing position of the driver
  * @param reserve {Driver} The name of the reserve driver
  * @param extra_information {string} Any extra information about the driver
@@ -93,7 +100,7 @@ class Driver {
    * @returns {boolean}
    * @description This function returns true if the driver is dropping out, false otherwise
    */
-  get dropped() {
+  get has_dropped() {
     return this.extra_information == ROUND_TAB_DROPPING_OUT_EXTRA_INFORMATION
   }
 
@@ -102,7 +109,7 @@ class Driver {
    * @description This function returns the movement of the driver
    */
   get movement() {
-    if (this.dropped) {
+    if (this.has_dropped) {
       return MOVEMENTS.DROPPED;
     } else if (this.promoted) {
       return MOVEMENTS.PROMOTED;
@@ -120,7 +127,7 @@ class Driver {
    * @description This function returns the background color associated with if the driver is promoted, demoted, stayed, or dropped
    */
   get background() {
-    if (this.dropped) {
+    if (this.has_dropped) {
       return ROUND_TAB_DROPPED_BG;
     } else if (this.promoted) {
       return ROUND_TAB_PROMOTED_BG;
@@ -198,6 +205,22 @@ function sortStartingOrder(division_number, drivers) {
       drivers.splice(i, 1);
     }
   }
+
+  let drivers_from_waiting_list = [];
+  i = drivers.length;
+  while (true) {
+    i -= 1;
+    if (i < 0) {
+      break;
+    }
+
+    let driver = drivers[i];
+    if (driver.from_waiting_list) {
+      driver.tied = true;
+      drivers_from_waiting_list.push(driver);
+      drivers.splice(i, 1);
+    }
+  }
   
   /**
    * @param a {Driver}
@@ -212,10 +235,6 @@ function sortStartingOrder(division_number, drivers) {
 
   if (division_number == 1) {
     drivers.sort(function(a, b) {
-      if (a.from_waiting_list != b.from_waiting_list) {
-        return a.from_waiting_list ? 1 : -1;
-      }
-
       handleTies(a, b);
       return a.total_points - b.total_points;
     });
@@ -230,10 +249,15 @@ function sortStartingOrder(division_number, drivers) {
     });
   }
 
-  reserves_faster_than_div.forEach(function(reserve) {
+  for (let i = reserves_faster_than_div.length - 1; i >= 0; i--) {
+    let reserve = reserves_faster_than_div[i];
     drivers.push(reserve);
-  });
+  }
 
+  for (let i = drivers_from_waiting_list.length - 1; i >= 0; i--) {
+    let driver = drivers_from_waiting_list[i];
+    drivers.push(driver);
+  }
   return drivers;
 }
 
@@ -275,6 +299,28 @@ function splitArrayOfColumnsIntoDivisions(values, division_row_offset) {
     divisions.push(division);
   }
   return divisions;
+}
+
+/**
+ * @param driver {Driver} The driver to update
+ * @param previous_division {str} The previous division of the driver
+ * @returns {driver} The updated driver
+ */
+function updateDriverMovementFromDivision(driver, previous_division) {
+  if (previous_division == WAITING_LIST_DIVISION_STRING) {
+    driver.from_waiting_list = true;
+    return driver;
+  }
+
+  previous_division = parseInt(previous_division);
+  if (previous_division < driver.division) {
+    driver.demoted = true;
+  } else if (previous_division > driver.division) {
+    driver.promoted = true;
+  } else {
+    driver.stayed = true;
+  }
+  return driver;
 }
 
 
@@ -337,7 +383,7 @@ function handleDropouts(all_divisions) {
     for (let j = 0; j < division.drivers.length; j++) {
       let driver = division.drivers[j];
 
-      if (driver.dropped) {
+      if (driver.has_dropped) {
         if (driver.promoted) {
           all_divisions = labelHighestFastestDemotionAsStayed(all_divisions, i-1, all_divisions.length - 1);
         } else if (driver.demoted) {
@@ -380,7 +426,7 @@ function updateDivisions() {
   let waiting_list_drivers_index = round_tab_named_ranges.indexOf(ROUND_TAB_WAITING_LIST_DRIVERS_NAMED_RANGE);
   let waiting_list_acceptable_divisions_index = round_tab_named_ranges.indexOf(ROUND_TAB_WAITING_LIST_ACCEPTABLE_DIVISIONS_NAMED_RANGE);
 
-  let round_tab_a1_ranges = round_tab_named_ranges.map(r => spreadsheet.getRangeByName(r).getValue())
+  let round_tab_a1_ranges = round_tab_named_ranges.map(r => spreadsheet.getRangeByName(r).getValue());
   //// above is gross... it gets the ranges one at a time, but to use .getRangeList you have to know the source sheet, and I didn't want to define what sheet the named ranges are located in
   let round_tab_ranges = sheet.getRangeList(round_tab_a1_ranges).getRanges();
 
@@ -524,7 +570,7 @@ function updateDivisions() {
       let driver = division.drivers[j];
       finishing_order_backgrounds[i * division_row_offset + j][0] = driver.background;
 
-      if (driver.dropped) {
+      if (driver.has_dropped) {
         division.drivers.splice(j, 1);
         j--;
         continue;
@@ -577,4 +623,126 @@ function updateDivisions() {
   next_round_tab_ranges[starting_order_reserve_index].setValues(next_round_tab_values[starting_order_reserve_index]);
   next_round_tab_ranges[starting_order_driver_index].setBackgrounds(next_round_tab_backgrounds[starting_order_driver_index]);
   next_round_tab_ranges[starting_order_extra_information_index].setValues(next_round_tab_values[starting_order_extra_information_index]);
+}
+
+
+/******************************************************************************/
+// Update Starting Orders
+/******************************************************************************/
+
+function updateStartingOrders() {
+  let spreadsheet = SpreadsheetApp.getActiveSpreadsheet(); // get the active spreadsheet
+  let sheet = SpreadsheetApp.getActiveSheet(); // get the active sheet
+  let sheet_name = sheet.getName(); // get the name of the active sheet
+
+  if (!confirm_continue(
+      `Create a new division based on \`${sheet_name}\`? \
+          \n\nHint: This should be the current round tab's name...`)) {
+    console.log("cancelling division update")
+    return;
+  }
+  
+  let round_number = parseInt(sheet_name.match(/\d+/)[0]);
+
+  let round_tab_named_ranges = [
+    ROUND_TAB_STARTING_ORDER_DRIVER_DIVISIONS_NAMED_RANGE,
+    ROUND_TAB_STARTING_ORDER_DRIVERS_NAMED_RANGE,
+    ROUND_TAB_STARTING_ORDER_DRIVERS_POINTS_NAMED_RANGE,
+    ROUND_TAB_STARTING_ORDER_RESERVE_DIVISIONS_NAMED_RANGE,
+    ROUND_TAB_STARTING_ORDER_RESERVES_NAMED_RANGE
+  ]
+  let starting_order_driver_division_index = round_tab_named_ranges.indexOf(ROUND_TAB_STARTING_ORDER_DRIVER_DIVISIONS_NAMED_RANGE);
+  let starting_order_driver_index = round_tab_named_ranges.indexOf(ROUND_TAB_STARTING_ORDER_DRIVERS_NAMED_RANGE);
+  let starting_order_driver_points_index = round_tab_named_ranges.indexOf(ROUND_TAB_STARTING_ORDER_DRIVERS_POINTS_NAMED_RANGE);
+  let starting_order_reserve_division_index = round_tab_named_ranges.indexOf(ROUND_TAB_STARTING_ORDER_RESERVE_DIVISIONS_NAMED_RANGE);
+  let starting_order_reserve_index = round_tab_named_ranges.indexOf(ROUND_TAB_STARTING_ORDER_RESERVES_NAMED_RANGE);
+
+  let round_tab_a1_ranges = round_tab_named_ranges.map(r => spreadsheet.getRangeByName(r).getValue());
+  let round_tab_ranges = sheet.getRangeList(round_tab_a1_ranges).getRanges();
+
+  let starting_order_driver_divisions_range = round_tab_ranges[starting_order_driver_division_index];
+  let starting_order_drivers_range = round_tab_ranges[starting_order_driver_index];
+  let starting_order_driver_points_range = round_tab_ranges[starting_order_driver_points_index];
+  let starting_order_reserve_divisions_range = round_tab_ranges[starting_order_reserve_division_index];
+  let starting_order_reserves_range = round_tab_ranges[starting_order_reserve_index];
+
+  let round_tab_values = [
+    starting_order_driver_divisions_range.getValues(),
+    starting_order_drivers_range.getValues(),
+    starting_order_driver_points_range.getValues(),
+    starting_order_reserve_divisions_range.getValues(),
+    starting_order_reserves_range.getValues()
+  ]
+
+  let starting_order_drivers_backgrounds = starting_order_drivers_range.getBackgrounds();
+
+  // split into divisions
+  let division_row_offset = sheet.getRange(ROUND_TAB_DIVISION_ROW_OFFSET_NAMED_RANGE).getValue();
+  let _divisions = splitArrayOfColumnsIntoDivisions([
+    round_tab_values[starting_order_driver_division_index],
+    round_tab_values[starting_order_driver_index],
+    round_tab_values[starting_order_driver_points_index],
+    round_tab_values[starting_order_reserve_division_index],
+    round_tab_values[starting_order_reserve_index]
+  ], division_row_offset);
+
+
+  for (let i = 0; i < _divisions.length; i++) {
+    let drivers = _divisions[i]
+    let _division = new Division(
+      division_number = i + 1,
+    );
+
+    for (let j = 0; j < drivers.length; j++) {
+      let driver_name = drivers[j][starting_order_driver_index][0];
+      let reserve_name = drivers[j][starting_order_reserve_index][0];
+      let reserve_division = drivers[j][starting_order_reserve_division_index][0];
+      if (driver_name == "") {
+        continue;
+      }
+      
+      let reserve = null;
+      if (reserve_name == ROUND_TAB_RESERVE_NEEDED_STRING) {
+        reserve = new Driver(name=reserve_name, division=_division.division_number);
+      } else if (reserve_name != "") {
+        let reserve_division_number = parseInt(String(reserve_division).match(/\d+/)[0]);
+        reserve = new Driver(
+          name = reserve_name,
+          division = reserve_division_number
+        );
+      }
+
+
+      let _driver = drivers[j];
+      let driver = new Driver(
+        name = _driver[starting_order_driver_index][0],
+        division = _division.division_number,
+        points = _driver[starting_order_driver_points_index][0],
+        reserve = reserve,
+      );
+      driver = updateDriverMovementFromDivision(driver, drivers[j][starting_order_driver_division_index][0]);
+      _division.drivers.push(driver);
+    }
+    _division.drivers = sortStartingOrder(_division.division_number, _division.drivers);
+
+    while (_division.drivers.length < division_row_offset) {
+      _division.drivers.push(new Driver(name = ""));
+    }
+    
+    // set the range values and backgrounds for staring order drivers and starting order reserves
+    for (let j = 0; j < _division.drivers.length - 1; j++) {
+      let driver = _division.drivers[j];
+      let reserve = driver.reserve;
+      if (reserve == null) {
+        reserve = new Driver(name = "");
+      }
+      round_tab_values[starting_order_driver_index][i * division_row_offset + j][0] = driver.name;
+      starting_order_drivers_backgrounds[i * division_row_offset + j][0] = driver.background;
+      round_tab_values[starting_order_reserve_index][i * division_row_offset + j][0] = reserve.name;
+    }
+  }
+
+  starting_order_drivers_range.setBackgrounds(starting_order_drivers_backgrounds);
+  starting_order_drivers_range.setValues(round_tab_values[starting_order_driver_index]);
+  starting_order_reserves_range.setValues(round_tab_values[starting_order_reserve_index]);
 }

@@ -1,4 +1,3 @@
-import 'google-apps-script';
 
 
 /******************************************************************************/
@@ -58,9 +57,9 @@ const MOVEMENTS = {
   DROPPED: "DROPPED"
 }
 const STARTING_ORDER_BY_MOVEMENT = [
-  MOVEMENTS.STAYED, 
-  MOVEMENTS.DEMOTED, 
-  MOVEMENTS.PROMOTED, 
+  MOVEMENTS.STAYED,
+  MOVEMENTS.DEMOTED,
+  MOVEMENTS.PROMOTED,
   MOVEMENTS.FROM_WAITING_LIST
 ]
 
@@ -80,7 +79,7 @@ const STARTING_ORDER_BY_MOVEMENT = [
  * @param extra_information {string} Any extra information about the driver
  */
 class Driver {
-  constructor(name, division = null, finishing_position = null, reserve = null, extra_information = null, ) {
+  constructor(name, division = null, finishing_position = null, reserve = null, extra_information = null,) {
     this.name = name;
     this.division = division;
     this.finishing_position = finishing_position;
@@ -148,7 +147,9 @@ class Driver {
    */
   setPoints(leaderboard_drivers, leaderboard_points) {
     let driver_index = leaderboard_drivers.findIndex(driver => driver[0] == this.name);
-    this.total_points = leaderboard_points[driver_index][0];
+    if (driver_index >= 0) {
+      this.total_points = leaderboard_points[driver_index][0];
+    }
   }
 }
 
@@ -190,7 +191,7 @@ class Division {
 function sortStartingOrder(division_number, drivers) {
   // div 1 is sorted reverse points order (ascending) of drivers that were not from waiting list
   // all other divs are sorted based on movement then by points
-  
+
   let reserves_faster_than_div = [];
   let i = drivers.length;
   while (true) {
@@ -221,7 +222,7 @@ function sortStartingOrder(division_number, drivers) {
       drivers.splice(i, 1);
     }
   }
-  
+
   /**
    * @param a {Driver}
    * @param b {Driver}
@@ -234,12 +235,12 @@ function sortStartingOrder(division_number, drivers) {
   }
 
   if (division_number == 1) {
-    drivers.sort(function(a, b) {
+    drivers.sort(function (a, b) {
       handleTies(a, b);
       return a.total_points - b.total_points;
     });
   } else {
-    drivers.sort(function(a, b) {
+    drivers.sort(function (a, b) {
       if (a.movement != b.movement) {
         return STARTING_ORDER_BY_MOVEMENT.indexOf(a.movement) - STARTING_ORDER_BY_MOVEMENT.indexOf(b.movement);
       }
@@ -335,7 +336,7 @@ function updateDriverMovementFromDivision(driver, previous_division) {
  * @returns {Object{Division[], Division[]}} 
  */
 function handleDropouts(all_divisions) {
-  
+
   /**
    * @param divisions {Division[]}
    * @param start {int}
@@ -385,9 +386,9 @@ function handleDropouts(all_divisions) {
 
       if (driver.has_dropped) {
         if (driver.promoted) {
-          all_divisions = labelHighestFastestDemotionAsStayed(all_divisions, i-1, all_divisions.length - 1);
+          all_divisions = labelHighestFastestDemotionAsStayed(all_divisions, i - 1, all_divisions.length - 1);
         } else if (driver.demoted) {
-          all_divisions = labelHighestFastestDemotionAsStayed(all_divisions, i+1, all_divisions.length - 1);
+          all_divisions = labelHighestFastestDemotionAsStayed(all_divisions, i + 1, all_divisions.length - 1);
         } else if (driver.stayed) {
           all_divisions = labelHighestFastestDemotionAsStayed(all_divisions, i, all_divisions.length - 1);
         }
@@ -404,12 +405,12 @@ function updateDivisions() {
   let sheet_name = sheet.getName(); // get the name of the active sheet
 
   if (!confirm_continue(
-      `Create a new division based on \`${sheet_name}\`? \
+    `Create a new division based on \`${sheet_name}\`? \
           \n\nHint: This should be the current round tab's name...`)) {
     console.log("cancelling division update")
     return;
   }
-  
+
   let round_number = parseInt(sheet_name.match(/\d+/)[0]);
 
   // get round tab ranges
@@ -480,7 +481,7 @@ function updateDivisions() {
   let starting_order_reserve_index = next_round_tab_named_ranges.indexOf(ROUND_TAB_STARTING_ORDER_RESERVES_NAMED_RANGE);
   let starting_order_extra_information_index = next_round_tab_named_ranges.indexOf(ROUND_TAB_EXTRA_INFORMATION_NAMED_RANGE);
   let next_round_tab_a1_ranges = next_round_tab_named_ranges.map(r => spreadsheet.getRangeByName(r).getValue())
-  
+
   let next_round_sheet = spreadsheet.getSheetByName(`${ROUND_TAB_PREFIX}${round_number + 1}`);
   let next_round_tab_ranges = next_round_sheet.getRangeList(next_round_tab_a1_ranges).getRanges();
   let next_round_tab_values = [
@@ -547,7 +548,7 @@ function updateDivisions() {
     if (driver_name == "") {
       continue;
     }
-    let driver = new Driver(name=driver_name)
+    let driver = new Driver(name = driver_name)
     let acceptable_divisions = round_tab_values[waiting_list_acceptable_divisions_index][i];
     for (let j = 0; j < acceptable_divisions.length; j++) {
       let acceptable_division = acceptable_divisions[j];
@@ -558,7 +559,7 @@ function updateDivisions() {
   // handle dropouts
   divisions = handleDropouts(divisions);
   let updated_divisions = [new Division(1)];
-  
+
   // set finishing order background colors and update division for next round
   let finishing_order_backgrounds = finishing_order_range.getBackgrounds();
   for (let i = 0; i < divisions.length; i++) {
@@ -577,12 +578,12 @@ function updateDivisions() {
       }
 
       driver.setPoints(
-        leaderboard_values[leaderboard_drivers_index], 
+        leaderboard_values[leaderboard_drivers_index],
         leaderboard_values[leaderboard_points_index]
       );
 
       driver.reserve = null;
-      
+
       if (driver.promoted) {
         updated_divisions[division.division_number - 2].drivers.push(driver);
       } else if (driver.demoted) {
@@ -618,7 +619,7 @@ function updateDivisions() {
       }
     }
   }
-  
+
   next_round_tab_ranges[starting_order_driver_index].setValues(next_round_tab_values[starting_order_driver_index]);
   next_round_tab_ranges[starting_order_reserve_index].setValues(next_round_tab_values[starting_order_reserve_index]);
   next_round_tab_ranges[starting_order_driver_index].setBackgrounds(next_round_tab_backgrounds[starting_order_driver_index]);
@@ -636,12 +637,12 @@ function updateStartingOrders() {
   let sheet_name = sheet.getName(); // get the name of the active sheet
 
   if (!confirm_continue(
-      `Create a new division based on \`${sheet_name}\`? \
+    `Create a new division based on \`${sheet_name}\`? \
           \n\nHint: This should be the current round tab's name...`)) {
     console.log("cancelling division update")
     return;
   }
-  
+
   let round_number = parseInt(sheet_name.match(/\d+/)[0]);
 
   let round_tab_named_ranges = [
@@ -700,10 +701,10 @@ function updateStartingOrders() {
       if (driver_name == "") {
         continue;
       }
-      
+
       let reserve = null;
       if (reserve_name == ROUND_TAB_RESERVE_NEEDED_STRING) {
-        reserve = new Driver(name=reserve_name, division=_division.division_number);
+        reserve = new Driver(name = reserve_name, division = _division.division_number);
       } else if (reserve_name != "") {
         let reserve_division_number = parseInt(String(reserve_division).match(/\d+/)[0]);
         reserve = new Driver(
@@ -717,9 +718,9 @@ function updateStartingOrders() {
       let driver = new Driver(
         name = _driver[starting_order_driver_index][0],
         division = _division.division_number,
-        points = _driver[starting_order_driver_points_index][0],
         reserve = reserve,
       );
+      driver.total_points = _driver[starting_order_driver_points_index][0];
       driver = updateDriverMovementFromDivision(driver, drivers[j][starting_order_driver_division_index][0]);
       _division.drivers.push(driver);
     }
@@ -728,7 +729,7 @@ function updateStartingOrders() {
     while (_division.drivers.length < division_row_offset) {
       _division.drivers.push(new Driver(name = ""));
     }
-    
+
     // set the range values and backgrounds for staring order drivers and starting order reserves
     for (let j = 0; j < _division.drivers.length - 1; j++) {
       let driver = _division.drivers[j];

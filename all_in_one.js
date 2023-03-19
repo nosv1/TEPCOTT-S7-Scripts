@@ -1,5 +1,3 @@
-
-
 /******************************************************************************/
 // Constants
 /******************************************************************************/
@@ -718,8 +716,8 @@ function updateStartingOrders() {
       let driver = new Driver(
         name = _driver[starting_order_driver_index][0],
         division = _division.division_number,
-        reserve = reserve,
       );
+      driver.reserve = reserve;
       driver.total_points = _driver[starting_order_driver_points_index][0];
       driver = updateDriverMovementFromDivision(driver, drivers[j][starting_order_driver_division_index][0]);
       _division.drivers.push(driver);
